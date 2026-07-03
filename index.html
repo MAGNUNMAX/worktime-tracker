@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <!-- Configuración crucial para que se comporte como app nativa en el celular -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="description" content="Aplicación para registrar y controlar horas de trabajo con cálculo de pago">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tracker Horas">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%233b82f6' width='192' height='192'/><text x='96' y='120' font-size='100' font-weight='bold' fill='white' text-anchor='middle'>⏱️</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%233b82f6' width='192' height='192'/><text x='96' y='120' font-size='100' font-weight='bold' fill='white' text-anchor='middle'>⏱️</text></svg>">
   <title>Control de Horas</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -20,39 +28,185 @@
     const { useState, useEffect } = React;
 
     const TARIFA_HORA = 25;
-    // Tasas estimadas de deducción
     const TASAS_IMPUESTOS = { fica: 0.0765, federal: 0.10, nyState: 0.045, nySdiPfl: 0.005 };
+    const DB_NAME = 'ControlHorasDB';
+    const STORE_NAME = 'registros';
+
+    // ===== BASE DE DATOS IndexedDB =====
+    const initDB = () => {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+        };
+      });
+    };
+
+    const obtenerRegistros = async () => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+      });
+    };
+
+    const guardarRegistro = async (registro) => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.add(registro);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+      });
+    };
+
+    const borrarRegistro = async (id) => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.delete(id);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve();
+      });
+    };
+
+    const borrarTodos = async () => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.clear();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve();
+      });
+    };
+
+    // ===== FUNCIONES DE FORMATO =====
+    const formatear12Horas = (fechaISO) => {
+      const fecha = new Date(fechaISO);
+      return fecha.toLocaleString('es-ES', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
+    };
+
+    const obtenerDiaSemana = (fechaISO) => {
+      const fecha = new Date(fechaISO);
+      return fecha.toLocaleString('es-ES', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
+    };
+
+    const agruparPorDia = (registros) => {
+      const dias = {};
+      registros.forEach(r => {
+        const dia = new Date(r.entrada).toDateString();
+        if (!dias[dia]) {
+          dias[dia] = { fecha: dia, horas: 0, registros: [] };
+        }
+        dias[dia].horas += (new Date(r.salida) - new Date(r.entrada)) / 3600000;
+        dias[dia].registros.push(r);
+      });
+      return Object.values(dias).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    };
+
+    const limpiarDatosAntiguos = async (entradas, setEntradas) => {
+      const dosSemanasAtras = new Date();
+      dosSemanasAtras.setDate(dosSemanasAtras.getDate() - 14);
+      
+      const registrosRecientes = entradas.filter(r => new Date(r.entrada) > dosSemanasAtras);
+      const registrosAntiguos = entradas.filter(r => new Date(r.entrada) <= dosSemanasAtras);
+      
+      if (registrosAntiguos.length === 0) {
+        alert('No hay datos más antiguos de 2 semanas');
+        return;
+      }
+
+      const confirmacion = confirm(`¿Borrar ${registrosAntiguos.length} registros más antiguos de 2 semanas?`);
+      if (!confirmacion) return;
+
+      try {
+        for (const r of registrosAntiguos) {
+          await borrarRegistro(r.id);
+        }
+        setEntradas(registrosRecientes);
+      } catch (e) {
+        console.error('Error borrando datos antiguos:', e);
+      }
+    };
 
     function App() {
-      // Estado inicializado desde localStorage para persistencia de datos
-      const [entradas, setEntradas] = useState(() => JSON.parse(localStorage.getItem('registros_tiempo') || '[]'));
-      const [entradaActual, setEntradaActual] = useState(() => localStorage.getItem('entrada_actual'));
+      const [entradas, setEntradas] = useState([]);
+      const [entradaActual, setEntradaActual] = useState(() => sessionStorage.getItem('entrada_actual'));
+      const [loading, setLoading] = useState(true);
 
+      // Cargar datos de la base de datos al iniciar
       useEffect(() => {
-        localStorage.setItem('registros_tiempo', JSON.stringify(entradas));
-        if (entradaActual) localStorage.setItem('entrada_actual', entradaActual);
-        else localStorage.removeItem('entrada_actual');
-      }, [entradas, entradaActual]);
+        const cargarDatos = async () => {
+          try {
+            const datos = await obtenerRegistros();
+            setEntradas(datos);
+          } catch (e) {
+            console.error('Error cargando datos:', e);
+          } finally {
+            setLoading(false);
+          }
+        };
+        cargarDatos();
+      }, []);
+
+      // Guardar entrada actual en sesión
+      useEffect(() => {
+        if (entradaActual) sessionStorage.setItem('entrada_actual', entradaActual);
+        else sessionStorage.removeItem('entrada_actual');
+      }, [entradaActual]);
 
       const marcarEntrada = () => setEntradaActual(new Date().toISOString());
       
-      const marcarSalida = () => {
+      const marcarSalida = async () => {
         if (!entradaActual) return;
         const nuevaEntrada = { id: Date.now(), entrada: entradaActual, salida: new Date().toISOString() };
-        setEntradas([...entradas, nuevaEntrada]);
-        setEntradaActual(null);
-      };
-
-      const borrarHistorial = () => {
-        if(confirm("¿Seguro que deseas borrar todos los registros?")) setEntradas([]);
-      };
-
-      const resetearHoras = () => {
-        if (confirm("¿Deseas resetear todas las horas y la entrada actual? Esto no se puede deshacer.")) {
-          setEntradas([]);
+        try {
+          await guardarRegistro(nuevaEntrada);
+          setEntradas([...entradas, nuevaEntrada]);
           setEntradaActual(null);
-          localStorage.removeItem('registros_tiempo');
-          localStorage.removeItem('entrada_actual');
+        } catch (e) {
+          console.error('Error guardando registro:', e);
+          alert('Error al guardar el registro');
+        }
+      };
+
+      const borrarHistorial = async () => {
+        if(confirm("¿Seguro que deseas borrar todos los registros?")) {
+          try {
+            await borrarTodos();
+            setEntradas([]);
+          } catch (e) {
+            console.error('Error borrando datos:', e);
+          }
+        }
+      };
+
+      const resetearHoras = async () => {
+        if (confirm("¿Deseas resetear todas las horas y la entrada actual? Esto no se puede deshacer.")) {
+          try {
+            await borrarTodos();
+            setEntradas([]);
+            setEntradaActual(null);
+            sessionStorage.removeItem('entrada_actual');
+          } catch (e) {
+            console.error('Error reseteando:', e);
+          }
         }
       };
 
@@ -61,8 +215,6 @@
         .filter(r => new Date(r.entrada).toDateString() === new Date().toDateString())
         .reduce((total, r) => total + (new Date(r.salida) - new Date(r.entrada)) / 3600000, 0);
 
-      // Para el ejemplo, agrupamos las horas totales registradas. 
-      // En una versión más compleja, podrías filtrar por la semana actual.
       const horasTotales = entradas.reduce((total, r) => total + (new Date(r.salida) - new Date(r.entrada)) / 3600000, 0); 
       
       const calcularPagoNeto = (horas) => {
@@ -73,6 +225,11 @@
       };
 
       const pago = calcularPagoNeto(horasTotales);
+      const diasConHoras = agruparPorDia(entradas);
+
+      if (loading) {
+        return <div className="max-w-md mx-auto p-4 text-center mt-10">Cargando datos...</div>;
+      }
 
       return (
         <div className="max-w-md mx-auto p-4 space-y-6 font-sans">
@@ -92,7 +249,7 @@
               </button>
             )}
             {entradaActual && (
-              <p className="mt-4 text-xs text-gray-400">Entraste a las: {new Date(entradaActual).toLocaleTimeString()}</p>
+              <p className="mt-4 text-xs text-gray-400">Entraste a las: {formatear12Horas(entradaActual)}</p>
             )}
           </div>
 
@@ -109,11 +266,41 @@
             <div className="flex justify-between font-black text-green-700 mt-2 text-xl"><span>Neto a Recibir:</span> <span>${pago.neto.toFixed(2)}</span></div>
           </div>
 
-          {entradas.length > 0 && (
-            <button onClick={borrarHistorial} className="w-full text-gray-400 text-sm py-2 underline">
-              Reiniciar semana (Borrar datos)
-            </button>
+          {diasConHoras.length > 0 && (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <h2 className="font-bold text-gray-800 text-lg border-b pb-2 mb-4">📅 Horas por Día</h2>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {diasConHoras.map((dia, idx) => (
+                  <div key={idx} className="bg-gradient-to-r from-blue-50 to-indigo-50 p-3 rounded border border-blue-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="font-semibold text-gray-800 text-sm">{new Date(dia.fecha).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
+                      <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-bold">{dia.horas.toFixed(2)} hrs</span>
+                    </div>
+                    <div className="space-y-1 text-xs text-gray-600">
+                      {dia.registros.map((r, i) => (
+                        <div key={i} className="flex justify-between bg-white p-2 rounded">
+                          <span className="text-gray-700">{formatear12Horas(r.entrada)} → {formatear12Horas(r.salida)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
+
+          <div className="flex gap-2">
+            {entradas.length > 0 && (
+              <button onClick={() => limpiarDatosAntiguos(entradas, setEntradas)} className="flex-1 text-xs bg-orange-400 hover:bg-orange-500 text-white py-2 rounded font-semibold">
+                🗑️ Limpiar (>2 semanas)
+              </button>
+            )}
+            {entradas.length > 0 && (
+              <button onClick={borrarHistorial} className="flex-1 text-xs bg-red-400 hover:bg-red-500 text-white py-2 rounded font-semibold">
+                Borrar Todo
+              </button>
+            )}
+          </div>
 
           {(entradas.length > 0 || entradaActual) && (
             <button onClick={resetearHoras} className="w-full text-gray-600 text-sm py-2 underline">
@@ -126,6 +313,19 @@
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
+
+    // ===== REGISTRAR SERVICE WORKER PARA PWA =====
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then((registration) => {
+            console.log('Service Worker registrado:', registration);
+          })
+          .catch((error) => {
+            console.log('Error registrando Service Worker:', error);
+          });
+      });
+    }
   </script>
 </body>
 </html>
