@@ -27,7 +27,7 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    const TARIFA_HORA = 25;
+    const DEFAULT_RATE = 25;
     const TASAS_IMPUESTOS = { fica: 0.0765, federal: 0.10, nyState: 0.045, nySdiPfl: 0.005 };
     const DB_NAME = 'ControlHorasDB';
     const STORE_NAME = 'registros';
@@ -149,6 +149,44 @@
       const [entradas, setEntradas] = useState([]);
       const [entradaActual, setEntradaActual] = useState(() => sessionStorage.getItem('entrada_actual'));
       const [loading, setLoading] = useState(true);
+      const [tarifaHora, setTarifaHora] = useState(() => {
+        const v = localStorage.getItem('tarifa_hora');
+        return v ? parseFloat(v) : DEFAULT_RATE;
+      });
+
+      // Preguntar tarifa al primer uso si no existe
+      useEffect(() => {
+        if (localStorage.getItem('tarifa_hora') === null) {
+          const resp = prompt('¿Cuánto te pagan por hora? (ej. 25)', String(DEFAULT_RATE));
+          if (resp !== null) {
+            const num = parseFloat(resp.replace(',', '.'));
+            if (!isNaN(num) && num > 0) {
+              setTarifaHora(num);
+              localStorage.setItem('tarifa_hora', String(num));
+            } else {
+              setTarifaHora(DEFAULT_RATE);
+              localStorage.setItem('tarifa_hora', String(DEFAULT_RATE));
+            }
+          } else {
+            setTarifaHora(DEFAULT_RATE);
+            localStorage.setItem('tarifa_hora', String(DEFAULT_RATE));
+          }
+        }
+      }, []);
+
+      const cambiarTarifa = () => {
+        const resp = prompt('Ingrese nueva tarifa por hora:', String(tarifaHora));
+        if (resp !== null) {
+          const num = parseFloat(resp.replace(',', '.'));
+          if (!isNaN(num) && num > 0) {
+            setTarifaHora(num);
+            localStorage.setItem('tarifa_hora', String(num));
+            alert('Tarifa actualizada a $' + num.toFixed(2) + '/hr');
+          } else {
+            alert('Valor inválido. No se cambió la tarifa.');
+          }
+        }
+      };
 
       // Cargar datos de la base de datos al iniciar
       useEffect(() => {
@@ -218,7 +256,7 @@
       const horasTotales = entradas.reduce((total, r) => total + (new Date(r.salida) - new Date(r.entrada)) / 3600000, 0); 
       
       const calcularPagoNeto = (horas) => {
-        const bruto = horas * TARIFA_HORA;
+        const bruto = horas * tarifaHora;
         const totalPorcentajeImpuestos = Object.values(TASAS_IMPUESTOS).reduce((a, b) => a + b, 0);
         const deducciones = bruto * totalPorcentajeImpuestos;
         return { bruto, deducciones, neto: bruto - deducciones };
@@ -260,7 +298,10 @@
           </div>
 
           <div className="bg-gradient-to-br from-green-50 to-emerald-100 p-6 rounded-2xl shadow-sm space-y-3 border border-green-200">
-            <h2 className="font-bold text-green-900 text-lg border-b border-green-200 pb-2">Estimación de Pago ($25/hr)</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-green-900 text-lg border-b border-green-200 pb-2">Estimación de Pago (${tarifaHora.toFixed(2)}/hr)</h2>
+              <button onClick={cambiarTarifa} className="text-sm text-blue-600 underline ml-2">Cambiar tarifa</button>
+            </div>
             <div className="flex justify-between text-green-800"><span>Bruto Total:</span> <span>${pago.bruto.toFixed(2)}</span></div>
             <div className="flex justify-between text-red-600 text-sm"><span>Deducciones (NY + Fed):</span> <span>-${pago.deducciones.toFixed(2)}</span></div>
             <div className="flex justify-between font-black text-green-700 mt-2 text-xl"><span>Neto a Recibir:</span> <span>${pago.neto.toFixed(2)}</span></div>
