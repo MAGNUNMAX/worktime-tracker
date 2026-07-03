@@ -1,8 +1,8 @@
 const CACHE_NAME = 'tracker-horas-v1';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  './',
+  './index.html',
+  './manifest.json'
 ];
 
 // Instalar el service worker
@@ -63,7 +63,7 @@ self.addEventListener('fetch', (event) => {
             return response;
           }
           // Fallback a página offline si existe
-          return caches.match('/index.html');
+          return caches.match('./index.html');
         });
       })
   );

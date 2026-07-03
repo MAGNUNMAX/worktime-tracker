@@ -2,7 +2,7 @@
   "name": "⏱️ Control de Horas de Trabajo",
   "short_name": "Tracker Horas",
   "description": "Aplicación para registrar y controlar horas de trabajo con cálculo de pago",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#3b82f6",
@@ -35,14 +35,14 @@
       "name": "Marcar Entrada",
       "short_name": "Entrada",
       "description": "Marcar hora de entrada",
-      "url": "/?action=entrada",
+      "url": "./?action=entrada",
       "icons": []
     },
     {
       "name": "Marcar Salida",
       "short_name": "Salida",
       "description": "Marcar hora de salida",
-      "url": "/?action=salida",
+      "url": "./?action=salida",
       "icons": []
     }
   ]
